@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# uv
+.uv-cache/
+
+# 环境变量(密钥所在,千万别传!)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# 数据(后面下载的法律文档不要传)
+data/raw/
+data/processed/
+
+# 模型权重(BGE-M3 这种几个 G 的别传)
+models/
+*.bin
+*.safetensors
