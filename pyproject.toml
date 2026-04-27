@@ -3,7 +3,13 @@ name = "legal-agent"
 version = "0.1.0"
 description = "企业级智能法律顾问 Agent"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi>=0.136.1",
+    "openai>=2.32.0",
+    "python-dotenv>=1.2.2",
+    "sse-starlette>=3.4.1",
+    "uvicorn>=0.46.0",
+]
 
 [dependency-groups]
 dev = [
