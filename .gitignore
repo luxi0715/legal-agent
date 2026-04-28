@@ -44,3 +44,5 @@ data/processed/
 models/
 *.bin
 *.safetensors
+# 临时测试文件
+req.json

@@ -6,7 +6,6 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-# 启动时自动加载 .env 文件
 load_dotenv()
 
 
@@ -22,17 +21,22 @@ class Settings(BaseModel):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
 
+    # PostgreSQL
+    postgres_dsn: str
+
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+
 
 @lru_cache
 def get_settings() -> Settings:
-    """Return a cached settings instance.
-
-    Using lru_cache so the env vars are read only once per process.
-    """
+    """Return a cached settings instance."""
     return Settings(
         deepseek_api_key=os.environ["DEEPSEEK_API_KEY"],
         deepseek_base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
         app_host=os.environ.get("APP_HOST", "127.0.0.1"),
         app_port=int(os.environ.get("APP_PORT", "8000")),
+        postgres_dsn=os.environ["POSTGRES_DSN"],
+        redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
     )

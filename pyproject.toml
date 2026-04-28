@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "企业级智能法律顾问 Agent"
 requires-python = ">=3.11"
 dependencies = [
+    "asyncpg>=0.30",
     "fastapi>=0.136.1",
     "openai>=2.32.0",
     "python-dotenv>=1.2.2",
+    "redis>=7.4.0",
     "sse-starlette>=3.4.1",
     "uvicorn>=0.46.0",
 ]
@@ -17,6 +19,7 @@ dev = [
     "mypy>=1.11.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23",
+    "httpx>=0.28.1",
 ]
 
 [build-system]
@@ -40,3 +43,7 @@ strict = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
