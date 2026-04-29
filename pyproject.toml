@@ -5,11 +5,18 @@ description = "企业级智能法律顾问 Agent"
 requires-python = ">=3.11"
 dependencies = [
     "asyncpg>=0.30",
+    "beautifulsoup4>=4.14.3",
+    "dashscope>=1.25.17",
     "fastapi>=0.136.1",
+    "httpx>=0.28.1",
+    "langchain-text-splitters>=1.1.2",
+    "lxml>=6.1.0",
+    "markitdown>=0.1.5",
     "openai>=2.32.0",
     "python-dotenv>=1.2.2",
     "redis>=7.4.0",
     "sse-starlette>=3.4.1",
+    "tqdm>=4.67.3",
     "uvicorn>=0.46.0",
 ]
 
@@ -20,6 +27,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.28.1",
+    "types-tqdm>=4.67.3.20260408",
 ]
 
 [build-system]
@@ -46,4 +54,8 @@ testpaths = ["tests"]
 
 [[tool.mypy.overrides]]
 module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["dashscope.*"]
 ignore_missing_imports = true

@@ -27,6 +27,11 @@ class Settings(BaseModel):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
+    # DashScope (Embedding)
+    dashscope_api_key: str
+    embedding_model: str = "text-embedding-v3"
+    embedding_dim: int = 1024
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -39,4 +44,7 @@ def get_settings() -> Settings:
         app_port=int(os.environ.get("APP_PORT", "8000")),
         postgres_dsn=os.environ["POSTGRES_DSN"],
         redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+        dashscope_api_key=os.environ["DASHSCOPE_API_KEY"],
+        embedding_model=os.environ.get("EMBEDDING_MODEL", "text-embedding-v3"),
+        embedding_dim=int(os.environ.get("EMBEDDING_DIM", "1024")),
     )

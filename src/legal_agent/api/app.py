@@ -2,20 +2,23 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from sse_starlette.sse import EventSourceResponse
 
-from legal_agent.agent.llm_client import generate_reply, stream_reply
+from legal_agent.agent.llm_client import (
+    generate_reply,
+    generate_reply_with_rag,
+    stream_reply,
+)
 from legal_agent.api.schemas import ChatRequest, ChatResponse
 from legal_agent.core.config import get_settings
 from legal_agent.core.version import get_version
-from legal_agent.db.messages import (
-    get_or_create_session,
-    save_message,
-)
+from legal_agent.db.messages import get_or_create_session, save_message
 from legal_agent.db.postgres import close_postgres_pool, init_postgres_pool
 from legal_agent.db.redis_client import close_redis, init_redis
+from legal_agent.rag.retriever import retrieve
 
 
 @asynccontextmanager
@@ -47,16 +50,14 @@ def create_app() -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(req: ChatRequest) -> ChatResponse:
-        """Send a message and get a non-streaming reply."""
+        """Plain chat (no RAG)."""
         session_id = await get_or_create_session(req.session_id)
         await save_message(session_id, "user", req.message)
-
         reply = await generate_reply(
             user_message=req.message,
             system_prompt=req.system_prompt,
         )
         await save_message(session_id, "assistant", reply)
-
         settings = get_settings()
         return ChatResponse(
             reply=reply,
@@ -66,25 +67,49 @@ def create_app() -> FastAPI:
 
     @app.post("/chat/stream")
     async def chat_stream(req: ChatRequest) -> EventSourceResponse:
-        """Stream the reply as Server-Sent Events."""
+        """Streaming chat (no RAG)."""
         session_id = await get_or_create_session(req.session_id)
         await save_message(session_id, "user", req.message)
 
         async def event_generator() -> AsyncIterator[dict[str, str]]:
             full_reply: list[str] = []
             yield {"event": "session", "data": str(session_id)}
-
             async for chunk in stream_reply(
                 user_message=req.message,
                 system_prompt=req.system_prompt,
             ):
                 full_reply.append(chunk)
                 yield {"data": chunk}
-
             await save_message(session_id, "assistant", "".join(full_reply))
             yield {"event": "done", "data": ""}
 
         return EventSourceResponse(event_generator())
+
+    @app.post("/search")
+    async def search(req: ChatRequest) -> dict[str, list[dict[str, Any]]]:
+        """Search the law database for relevant chunks."""
+        results = await retrieve(req.message, top_k=5, min_score=0.3)
+        return {"results": [dict(r) for r in results]}
+
+    @app.post("/chat/rag", response_model=ChatResponse)
+    async def chat_rag(req: ChatRequest) -> ChatResponse:
+        """RAG-enhanced chat: retrieve law chunks then generate."""
+        session_id = await get_or_create_session(req.session_id)
+        await save_message(session_id, "user", req.message)
+
+        chunks = await retrieve(req.message, top_k=5, min_score=0.3)
+        reply = await generate_reply_with_rag(
+            user_message=req.message,
+            retrieved_chunks=[dict(c) for c in chunks],
+            system_prompt=req.system_prompt,
+        )
+        await save_message(session_id, "assistant", reply)
+        settings = get_settings()
+        return ChatResponse(
+            reply=reply,
+            model=settings.deepseek_model,
+            session_id=session_id,
+        )
 
     return app
 

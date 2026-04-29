@@ -46,3 +46,6 @@ models/
 *.safetensors
 # 临时测试文件
 req.json
+
+# 数据目录(法律文档不传 GitHub)
+data/
