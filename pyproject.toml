@@ -9,6 +9,7 @@ dependencies = [
     "dashscope>=1.25.17",
     "fastapi>=0.136.1",
     "httpx>=0.28.1",
+    "jieba>=0.42.1",
     "langchain-text-splitters>=1.1.2",
     "lxml>=6.1.0",
     "markitdown>=0.1.5",
