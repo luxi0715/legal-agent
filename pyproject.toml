@@ -60,3 +60,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["dashscope.*"]
 ignore_missing_imports = true
+
+
+[[tool.mypy.overrides]]
+module = ["jieba.*"]
+ignore_missing_imports = true

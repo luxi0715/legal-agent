@@ -32,3 +32,13 @@ class ChatResponse(BaseModel):
     reply: str = Field(..., description="The AI's reply text")
     model: str = Field(..., description="The model that produced this reply")
     session_id: UUID = Field(..., description="The session this turn belongs to")
+
+    # ⭐ M5: Two-Stage RAG 可观测字段(可选,旧客户端兼容)
+    abstained: bool | None = Field(
+        default=None,
+        description="Whether the system abstained from answering due to low confidence",
+    )
+    top_rerank: float | None = Field(
+        default=None,
+        description="Top-1 reranker score (M5: useful for monitoring/eval)",
+    )

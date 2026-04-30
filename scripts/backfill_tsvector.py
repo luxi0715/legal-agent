@@ -9,6 +9,8 @@ from legal_agent.core.config import get_settings
 from legal_agent.rag.tokenizer import tokenize_for_tsvector
 
 
+BATCH_SIZE = 500
+
 async def backfill() -> None:
     settings = get_settings()
     conn = await asyncpg.connect(settings.postgres_dsn)
@@ -22,8 +24,7 @@ async def backfill() -> None:
         await conn.close()
         return
 
-    # 2. 分批拉取 + 更新
-    BATCH = 500
+    # 2. 分批拉取 + 更新(BATCH 为模块级常量,见文件顶部)
     offset = 0
     processed = 0
     pbar = tqdm(total=total, desc="Backfilling tsvector")

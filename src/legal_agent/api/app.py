@@ -9,7 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from legal_agent.agent.llm_client import (
     generate_reply,
-    generate_reply_with_rag,
+    generate_reply_with_two_stage,
     stream_reply,
 )
 from legal_agent.api.schemas import ChatRequest, ChatResponse
@@ -18,8 +18,11 @@ from legal_agent.core.version import get_version
 from legal_agent.db.messages import get_or_create_session, save_message
 from legal_agent.db.postgres import close_postgres_pool, init_postgres_pool
 from legal_agent.db.redis_client import close_redis, init_redis
+from legal_agent.rag.abstention import decide_abstention
+from legal_agent.rag.context_reorder import reorder_for_lost_in_the_middle
 from legal_agent.rag.hybrid_retriever import hybrid_retrieve
 from legal_agent.rag.retriever import retrieve
+from legal_agent.rag.two_stage_retriever import two_stage_retrieve
 
 
 @asynccontextmanager
@@ -94,29 +97,60 @@ def create_app() -> FastAPI:
 
     @app.post("/search/hybrid")
     async def search_hybrid(req: ChatRequest) -> dict[str, list[dict[str, Any]]]:
-        """Hybrid search: vector + BM25 fused with RRF."""
+        """Hybrid search: vector + BM25 fused with RRF (M4 baseline)."""
         results = await hybrid_retrieve(req.message, top_k=5, candidates_per_method=50)
         return {"results": [dict(r) for r in results]}
 
+    @app.post("/search/rerank")
+    async def search_rerank(req: ChatRequest) -> dict[str, Any]:
+        """Two-Stage retrieval: Hybrid recall + Cross-encoder rerank (M5).
+
+        Returns abstention info when confidence is too low to answer.
+        """
+        reranked = await two_stage_retrieve(
+            query=req.message,
+            recall_top_k=50,
+            final_top_k=5,
+        )
+        decision = decide_abstention(reranked)
+
+        if decision.should_abstain:
+            return {
+                "results": [],
+                "abstained": True,
+                "reason": decision.reason,
+                "user_message": decision.user_message,
+                "top_rerank": decision.top_rerank,
+                "top_recall": decision.top_recall,
+            }
+
+        reordered = reorder_for_lost_in_the_middle(reranked)
+        return {
+            "results": [dict(r) for r in reordered],
+            "abstained": False,
+            "top_rerank": decision.top_rerank,
+            "top_recall": decision.top_recall,
+        }
+
     @app.post("/chat/rag", response_model=ChatResponse)
     async def chat_rag(req: ChatRequest) -> ChatResponse:
-        """RAG-enhanced chat (now using hybrid retrieval)."""
+        """RAG-enhanced chat with Two-Stage retrieval + Abstention (M5 upgrade)."""
         session_id = await get_or_create_session(req.session_id)
         await save_message(session_id, "user", req.message)
 
-        chunks = await hybrid_retrieve(req.message, top_k=5, candidates_per_method=50)
-        reply = await generate_reply_with_rag(
+        result = await generate_reply_with_two_stage(
             user_message=req.message,
-            retrieved_chunks=[dict(c) for c in chunks],
             system_prompt=req.system_prompt,
         )
-        await save_message(session_id, "assistant", reply)
+        await save_message(session_id, "assistant", result.reply)
 
         settings = get_settings()
         return ChatResponse(
-            reply=reply,
+            reply=result.reply,
             model=settings.deepseek_model,
             session_id=session_id,
+            abstained=result.abstained,
+            top_rerank=result.top_rerank,
         )
 
     return app

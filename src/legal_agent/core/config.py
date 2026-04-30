@@ -32,6 +32,9 @@ class Settings(BaseModel):
     embedding_model: str = "text-embedding-v3"
     embedding_dim: int = 1024
 
+    # DashScope (Rerank) ⭐ M5 新增
+    rerank_model: str = "gte-rerank-v2"
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -47,4 +50,5 @@ def get_settings() -> Settings:
         dashscope_api_key=os.environ["DASHSCOPE_API_KEY"],
         embedding_model=os.environ.get("EMBEDDING_MODEL", "text-embedding-v3"),
         embedding_dim=int(os.environ.get("EMBEDDING_DIM", "1024")),
+        rerank_model=os.environ.get("RERANK_MODEL", "gte-rerank-v2"),
     )
