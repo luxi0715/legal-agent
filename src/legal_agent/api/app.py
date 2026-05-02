@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 from sse_starlette.sse import EventSourceResponse
 
+from legal_agent.agent.agent_loop import run_agent_loop
 from legal_agent.agent.llm_client import (
     generate_reply,
     generate_reply_with_two_stage,
@@ -103,10 +104,7 @@ def create_app() -> FastAPI:
 
     @app.post("/search/rerank")
     async def search_rerank(req: ChatRequest) -> dict[str, Any]:
-        """Two-Stage retrieval: Hybrid recall + Cross-encoder rerank (M5).
-
-        Returns abstention info when confidence is too low to answer.
-        """
+        """Two-Stage retrieval: Hybrid recall + Cross-encoder rerank (M5)."""
         reranked = await two_stage_retrieve(
             query=req.message,
             recall_top_k=50,
@@ -134,7 +132,7 @@ def create_app() -> FastAPI:
 
     @app.post("/chat/rag", response_model=ChatResponse)
     async def chat_rag(req: ChatRequest) -> ChatResponse:
-        """RAG-enhanced chat with Two-Stage retrieval + Abstention (M5 upgrade)."""
+        """RAG-enhanced chat with Two-Stage retrieval + Abstention (M5)."""
         session_id = await get_or_create_session(req.session_id)
         await save_message(session_id, "user", req.message)
 
@@ -151,6 +149,25 @@ def create_app() -> FastAPI:
             session_id=session_id,
             abstained=result.abstained,
             top_rerank=result.top_rerank,
+        )
+
+    @app.post("/chat/agent", response_model=ChatResponse)
+    async def chat_agent(req: ChatRequest) -> ChatResponse:
+        """Agent chat: LLM autonomously chooses tools (M6 ⭐)."""
+        session_id = await get_or_create_session(req.session_id)
+        await save_message(session_id, "user", req.message)
+
+        trace = await run_agent_loop(
+            user_message=req.message,
+            system_prompt=req.system_prompt,
+        )
+        await save_message(session_id, "assistant", trace.final_reply)
+
+        settings = get_settings()
+        return ChatResponse(
+            reply=trace.final_reply,
+            model=settings.deepseek_model,
+            session_id=session_id,
         )
 
     return app
