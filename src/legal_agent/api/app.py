@@ -14,6 +14,7 @@ from legal_agent.agent.llm_client import (
     stream_reply,
 )
 from legal_agent.agent.react_agent import run_react_agent
+from legal_agent.agent.react_agent_with_memory import run_react_agent_with_memory
 from legal_agent.api.schemas import ChatRequest, ChatResponse
 from legal_agent.core.config import get_settings
 from legal_agent.core.version import get_version
@@ -200,6 +201,46 @@ def create_app() -> FastAPI:
             "iterations": result["iterations"],
             "tool_calls_count": len(result["tool_calls_log"]),
             "tool_calls": result["tool_calls_log"],
+        }
+
+    @app.post("/chat/memory")
+    async def chat_memory(req: ChatRequest) -> dict[str, Any]:
+        """ReAct Agent + 三层记忆 (M8 ⭐⭐⭐).
+
+        vs M7 /chat/react:
+        - M7: 单轮无上下文,无法解析\"那\"\"他\"\"上次说的\"等指代
+        - M8: Buffer(滑窗) + Summary(长程) + Hard Memory(用户档案)
+              自动注入,跨轮记忆持续性
+
+        M8 决策(详见 docs/notes/M8-evaluation.md):
+        - user_id = session_id(伪用户标识,M9 接入正式用户系统时无需迁移)
+        - Buffer 7 轮(14 条消息)
+        - Buffer 满触发 Summary 压缩
+        - 同步 Entity 抽取(每轮 +1 LLM 调用,~1-3 秒延迟)
+        """
+        session_id = await get_or_create_session(req.session_id)
+        # M8.0 决策 1:user_id 用 UUID,初期值 = session_id
+        user_id = session_id
+
+        await save_message(session_id, "user", req.message)
+
+        result = await run_react_agent_with_memory(
+            user_message=req.message,
+            user_id=user_id,
+            session_id=session_id,
+            system_prompt=req.system_prompt,
+        )
+        await save_message(session_id, "assistant", result["final_reply"])
+
+        settings = get_settings()
+        return {
+            "reply": result["final_reply"],
+            "model": settings.deepseek_model,
+            "session_id": str(session_id),
+            "iterations": result["iterations"],
+            "tool_calls_count": len(result["tool_calls_log"]),
+            "tool_calls": result["tool_calls_log"],
+            "memory_meta": result["memory_meta"],
         }
 
     return app

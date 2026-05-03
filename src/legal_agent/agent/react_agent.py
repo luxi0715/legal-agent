@@ -10,6 +10,9 @@ ReAct 循环:
               否 → END (最终回答)
 
 防死循环:state.iteration 上限.
+
+M8.7 加了 initial_messages 旁路参数,让 Memory Manager
+能注入历史上下文.向后兼容,M7 现有调用不受影响.
 """
 
 import json
@@ -118,7 +121,7 @@ async def thinker_node(state: ReactState) -> dict[str, Any]:
 
     response = await client.chat.completions.create(
         model=settings.deepseek_model,
-        messages=openai_messages,  # type: ignore[arg-type]
+        messages=openai_messages,  # type: ignore[call-overload]
         tools=ALL_TOOLS,
         tool_choice="auto",
         temperature=0.3,
@@ -253,8 +256,16 @@ def get_react_graph() -> Any:
 async def run_react_agent(
     user_message: str,
     system_prompt: str | None = None,
+    initial_messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """运行 ReAct Agent.
+
+    Args:
+        user_message: 当前用户消息(纯文本)
+        system_prompt: 系统提示,initial_messages 为 None 时使用
+        initial_messages: 可选 — 由调用方预构造的完整 messages
+                         (用于 M8 Memory 注入历史上下文).
+                         传了就直接用,system_prompt / user_message 被忽略.
 
     Returns:
         dict 包含:
@@ -264,11 +275,18 @@ async def run_react_agent(
     """
     app = get_react_graph()
 
-    initial_state: ReactState = {
-        "messages": [
+    if initial_messages is not None:
+        # M8 旁路:调用方已经组装好 messages(含 buffer 历史 + 当前 user)
+        messages: list[Any] = list(initial_messages)
+    else:
+        # M7 默认:简单 system + user
+        messages = [
             {"role": "system", "content": system_prompt or REACT_SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
-        ],
+        ]
+
+    initial_state: ReactState = {
+        "messages": messages,
         "iteration": 0,
         "tool_calls_log": [],
     }
