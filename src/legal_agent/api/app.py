@@ -13,6 +13,7 @@ from legal_agent.agent.llm_client import (
     generate_reply_with_two_stage,
     stream_reply,
 )
+from legal_agent.agent.react_agent import run_react_agent
 from legal_agent.api.schemas import ChatRequest, ChatResponse
 from legal_agent.core.config import get_settings
 from legal_agent.core.version import get_version
@@ -153,7 +154,10 @@ def create_app() -> FastAPI:
 
     @app.post("/chat/agent", response_model=ChatResponse)
     async def chat_agent(req: ChatRequest) -> ChatResponse:
-        """Agent chat: LLM autonomously chooses tools (M6 ⭐)."""
+        """Agent chat: LLM autonomously chooses tools (M6 ⭐).
+
+        Uses while-loop based agent_loop, single-tool-per-iteration pattern.
+        """
         session_id = await get_or_create_session(req.session_id)
         await save_message(session_id, "user", req.message)
 
@@ -169,6 +173,34 @@ def create_app() -> FastAPI:
             model=settings.deepseek_model,
             session_id=session_id,
         )
+
+    @app.post("/chat/react")
+    async def chat_react(req: ChatRequest) -> dict[str, Any]:
+        """ReAct Agent chat: LangGraph-based reasoning loop (M7 ⭐).
+
+        vs M6 /chat/agent:
+        - M6: imperative while-loop, control flow embedded in code.
+        - M7: declarative StateGraph, thinker / actor nodes,
+          supports parallel tool calls and easier extension.
+        """
+        session_id = await get_or_create_session(req.session_id)
+        await save_message(session_id, "user", req.message)
+
+        result = await run_react_agent(
+            user_message=req.message,
+            system_prompt=req.system_prompt,
+        )
+        await save_message(session_id, "assistant", result["final_reply"])
+
+        settings = get_settings()
+        return {
+            "reply": result["final_reply"],
+            "model": settings.deepseek_model,
+            "session_id": str(session_id),
+            "iterations": result["iterations"],
+            "tool_calls_count": len(result["tool_calls_log"]),
+            "tool_calls": result["tool_calls_log"],
+        }
 
     return app
 
