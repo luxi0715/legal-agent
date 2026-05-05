@@ -1,5 +1,13 @@
 """FastAPI application entry point."""
 
+import asyncio
+import sys
+
+# M9.3: psycopg async 在 Windows 不兼容默认的 ProactorEventLoop,
+# 切到 SelectorEventLoop 才能用 LangGraph PG checkpointer.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -20,6 +28,7 @@ from legal_agent.core.config import get_settings
 from legal_agent.core.version import get_version
 from legal_agent.db.messages import get_or_create_session, save_message
 from legal_agent.db.postgres import close_postgres_pool, init_postgres_pool
+from legal_agent.agent.checkpointer import close_checkpointer, init_checkpointer
 from legal_agent.db.redis_client import close_redis, init_redis
 from legal_agent.rag.abstention import decide_abstention
 from legal_agent.rag.context_reorder import reorder_for_lost_in_the_middle
@@ -33,7 +42,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize and clean up resources tied to the app lifecycle."""
     await init_postgres_pool()
     await init_redis()
+    await init_checkpointer()  # M9.3: ReAct 状态持久化
     yield
+    await close_checkpointer()
     await close_postgres_pool()
     await close_redis()
 
