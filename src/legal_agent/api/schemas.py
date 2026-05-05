@@ -24,6 +24,12 @@ class ChatRequest(BaseModel):
         default=None,
         description="Existing session UUID. Omit to start a new session.",
     )
+    # ⭐ M10: Persona 模式选择(/chat/persona 端点用)
+    persona_mode: str | None = Field(
+        default=None,
+        description="Persona mode: default/strict/friendly/enterprise/litigation",
+        examples=["default", "strict"],
+    )
 
 
 class ChatResponse(BaseModel):

@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from sse_starlette.sse import EventSourceResponse
 
 from legal_agent.agent.agent_loop import run_agent_loop
+from legal_agent.agent.checkpointer import close_checkpointer, init_checkpointer
 from legal_agent.agent.llm_client import (
     generate_reply,
     generate_reply_with_two_stage,
@@ -28,7 +29,6 @@ from legal_agent.core.config import get_settings
 from legal_agent.core.version import get_version
 from legal_agent.db.messages import get_or_create_session, save_message
 from legal_agent.db.postgres import close_postgres_pool, init_postgres_pool
-from legal_agent.agent.checkpointer import close_checkpointer, init_checkpointer
 from legal_agent.db.redis_client import close_redis, init_redis
 from legal_agent.rag.abstention import decide_abstention
 from legal_agent.rag.context_reorder import reorder_for_lost_in_the_middle
@@ -252,6 +252,54 @@ def create_app() -> FastAPI:
             "tool_calls_count": len(result["tool_calls_log"]),
             "tool_calls": result["tool_calls_log"],
             "memory_meta": result["memory_meta"],
+        }
+
+    @app.post("/chat/persona")
+    async def chat_persona(req: ChatRequest) -> dict[str, Any]:
+        """ReAct + Memory + Persona + Guard (M10 ⭐⭐⭐).
+
+        vs M8 /chat/memory:
+        - M8: 单一 system_prompt + 用户档案 KV
+        - M10: 5 套 Persona(default/strict/friendly/enterprise/litigation)
+              + 自然语言用户画像 + 漂移检测
+
+        Persona 模式选择:
+        - default     :通用法律顾问助手
+        - strict      :严谨法律分析师(商务合同 / 合规)
+        - friendly    :亲切助手(个人维权 / 焦虑用户)
+        - enterprise  :企业法务顾问
+        - litigation  :诉讼方向(已发生纠纷)
+
+        通过 query 参数 persona_mode 切换,默认 default.
+        """
+        session_id = await get_or_create_session(req.session_id)
+        user_id = session_id
+
+        await save_message(session_id, "user", req.message)
+
+        # M10 — persona_mode 从 request 读取,默认 default
+        persona_mode = getattr(req, "persona_mode", None) or "default"
+
+        result = await run_react_agent_with_memory(
+            user_message=req.message,
+            user_id=user_id,
+            session_id=session_id,
+            system_prompt=req.system_prompt,
+            persona_mode=persona_mode,
+        )
+        await save_message(session_id, "assistant", result["final_reply"])
+
+        settings = get_settings()
+        return {
+            "reply": result["final_reply"],
+            "model": settings.deepseek_model,
+            "session_id": str(session_id),
+            "persona_mode": result["persona_mode"],
+            "iterations": result["iterations"],
+            "tool_calls_count": len(result["tool_calls_log"]),
+            "tool_calls": result["tool_calls_log"],
+            "memory_meta": result["memory_meta"],
+            "guard": result["guard"],
         }
 
     return app

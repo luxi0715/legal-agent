@@ -1,20 +1,8 @@
-"""Memory Manager: 编排 4 个 memory 单元层 (M8 ⭐⭐⭐ + M9.1 异步化).
+"""Memory Manager: 编排 4 个 memory 单元层 (M8 + M9.1 + M10.3).
 
 对外暴露 2 个高级 API:
-  • inject_memory_into_messages — 喂 LLM 前注入记忆
+  • inject_memory_into_messages — 喂 LLM 前注入记忆 + Persona
   • record_turn                 — 一轮对话后更新所有记忆
-
-设计哲学:
-  • 不直接持有数据,只编排 4 个单元层
-  • Buffer 满才触发 Summary 压缩(最贵操作)
-  • Entity 抽取异步执行(M9.1 — 用 asyncio.create_task fire-and-forget)
-  • 单元层独立可测,本层只关心编排顺序
-
-M9.1 改动:
-  • Entity 抽取从同步 await 改为 asyncio.create_task
-  • record_turn 立刻返回,不等 entity 抽取完成
-  • 牺牲实时一致性,换主流程不阻塞
-  • Trade-off:返回值的 entities_extracted 改为 "async" 字符串
 """
 
 from __future__ import annotations
@@ -35,15 +23,16 @@ from legal_agent.memory.buffer_memory import (
 from legal_agent.memory.entity_extractor import extract_and_persist
 from legal_agent.memory.hard_memory import get_user_facts
 from legal_agent.memory.summary_memory import compress_and_update, get_summary
+from legal_agent.persona.loader import build_persona_system_prompt, get_persona
+from legal_agent.persona.user_persona import build_user_persona_text
 
 logger = logging.getLogger(__name__)
 
-# Buffer 满时,压缩多少条进 Summary
 SUMMARY_BATCH_SIZE = 6
 
 
 def _format_facts(facts: dict[str, str]) -> str:
-    """把 user_facts dict 格式化成 prompt 友好文本."""
+    """把 user_facts dict 格式化成 prompt 友好文本(M8 兼容)."""
     if not facts:
         return ""
     lines = "\n".join(f"- {k}: {v}" for k, v in facts.items())
@@ -60,17 +49,24 @@ def _format_summary(summary: str) -> str:
 async def build_memory_context(
     user_id: UUID,
     session_id: UUID,
+    use_user_persona: bool = False,
 ) -> str:
-    """构建 facts + summary 文本块(给 system prompt 用).
+    """构建 facts/persona + summary 文本块.
 
-    不包含 buffer — buffer 在 messages 里展开.
+    Args:
+        use_user_persona: M10.3 — True 时用自然语言画像替代原始 KV.
     """
     facts = await get_user_facts(user_id)
     summary = await get_summary(session_id)
 
     parts = []
     if facts:
-        parts.append(_format_facts(facts))
+        if use_user_persona:
+            persona_text = build_user_persona_text(facts)
+            if persona_text:
+                parts.append(f"## 用户画像\n{persona_text}")
+        else:
+            parts.append(_format_facts(facts))
     if summary:
         parts.append(_format_summary(summary))
 
@@ -82,10 +78,29 @@ async def inject_memory_into_messages(
     user_id: UUID,
     session_id: UUID,
     system_prompt: str,
+    persona_mode: str | None = None,
 ) -> list[dict[str, Any]]:
-    """⭐ 构造完整 messages,注入三层记忆."""
-    memory_ctx = await build_memory_context(user_id, session_id)
-    full_system = f"{system_prompt}\n\n{memory_ctx}" if memory_ctx else system_prompt
+    """⭐ 构造完整 messages,注入 Persona + 三层记忆.
+
+    Args:
+        persona_mode: M10.3 — None 时走 M8 老路(向后兼容).
+                     非 None 时用 persona 替换 system_prompt + 用画像替代 KV.
+    """
+    if persona_mode is not None:
+        persona = get_persona(persona_mode)
+        full_system_base = build_persona_system_prompt(persona)
+        memory_ctx = await build_memory_context(
+            user_id, session_id, use_user_persona=True
+        )
+    else:
+        full_system_base = system_prompt
+        memory_ctx = await build_memory_context(
+            user_id, session_id, use_user_persona=False
+        )
+
+    full_system = (
+        f"{full_system_base}\n\n{memory_ctx}" if memory_ctx else full_system_base
+    )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": full_system}]
 
@@ -107,11 +122,7 @@ async def _async_extract_entities(
     user_id: UUID,
     new_msgs: list[dict[str, str]],
 ) -> None:
-    """⭐ M9.1 — 后台 entity 抽取任务.
-
-    错误隔离:任何异常都被 swallow,不影响主流程.
-    出错只记 logger,因为没人 await 这个 task.
-    """
+    """⭐ M9.1 — 后台 entity 抽取任务,错误隔离."""
     try:
         persisted = await extract_and_persist(user_id, new_msgs)
         logger.info(
@@ -120,7 +131,7 @@ async def _async_extract_entities(
         )
     except Exception:
         logger.exception(
-            "Entity extraction (async) failed for user_id=%s — silently dropped",
+            "Entity extraction (async) failed for user_id=%s",
             user_id,
         )
 
@@ -131,31 +142,16 @@ async def record_turn(
     user_message: str,
     assistant_reply: str,
 ) -> dict[str, Any]:
-    """⭐ 记录一轮完整对话(M9.1: entity 抽取异步化).
-
-    流程:
-        1. user/assistant 写入 Buffer(同步,主流程必须)
-        2. Entity 抽取 异步发出 — 立刻返回不等
-        3. 检查 Buffer 是否满 → 触发 Summary 压缩
-
-    Returns:
-        dict: 这一轮的元信息
-            • entities_extracted: "async" — 异步执行,实际值未知
-            • summary_triggered: 是否压缩了 summary
-            • buffer_size_after: buffer 当前大小
-    """
-    # 1. 写 Buffer(主流程,必须等)
+    """⭐ 记录一轮对话(M9.1: entity 异步)."""
     await append_to_buffer(session_id, "user", user_message)
     await append_to_buffer(session_id, "assistant", assistant_reply)
 
-    # 2. ⭐ M9.1 — 异步抽 entity,fire-and-forget
     new_msgs_for_entity = [
         {"role": "user", "content": user_message},
         {"role": "assistant", "content": assistant_reply},
     ]
     asyncio.create_task(_async_extract_entities(user_id, new_msgs_for_entity))
 
-    # 3. 检查 Buffer 是否满,满则压缩(主流程,因为下一轮 inject 要用)
     summary_triggered = False
     buffer_size = await get_buffer_size(session_id)
     if buffer_size >= BUFFER_MAX_ITEMS:
@@ -173,7 +169,7 @@ async def record_turn(
             summary_triggered = True
 
     return {
-        "entities_extracted": "async",  # ⚠️ M9.1 异步化,无法立刻知道数量
+        "entities_extracted": "async",
         "summary_triggered": summary_triggered,
         "buffer_size_after": await get_buffer_size(session_id),
     }

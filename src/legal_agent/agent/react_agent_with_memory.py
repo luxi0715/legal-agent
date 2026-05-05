@@ -1,12 +1,12 @@
-"""ReAct Agent + Memory 集成 (M8.7).
+"""ReAct Agent + Memory + Persona + Guard 集成 (M8.7 + M10.3 + M10.4).
 
-薄封装:把 M8 Memory Manager 编排层和 M7 ReAct Agent 拼起来.
+薄封装:把 M8 Memory + M10 Persona + Guard + M7 ReAct 拼起来.
 
 设计哲学:
-  • react_agent.py 几乎不改(只加 initial_messages 旁路参数)
-  • 本文件 不持有 任何记忆逻辑,只编排
-  • 记忆生命周期完全由 Memory Manager 管理
-  • 体现 \"M7 推理 + M8 记忆\" 通过 messages 接口解耦
+  • react_agent.py 几乎不改
+  • 本文件不持有任何记忆/Persona 逻辑,只编排
+  • persona_mode=None → M8 行为(向后兼容,无 Guard)
+  • persona_mode 指定 → M10 行为 + 自动 Guard 检测
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from legal_agent.memory.memory_manager import (
     inject_memory_into_messages,
     record_turn,
 )
+from legal_agent.persona.guard import log_drift_if_any
 
 
 async def run_react_agent_with_memory(
@@ -26,44 +27,41 @@ async def run_react_agent_with_memory(
     user_id: UUID,
     session_id: UUID,
     system_prompt: str | None = None,
+    persona_mode: str | None = None,
+    thread_id: str | None = None,
 ) -> dict[str, Any]:
-    """⭐ 带三层记忆的 ReAct Agent.
-
-    Args:
-        user_message: 当前用户输入
-        user_id: 用户标识(M8 起步 = session.id 派生)
-        session_id: 会话标识
-        system_prompt: 基础 system prompt(默认用 REACT_SYSTEM_PROMPT)
-
-    Returns:
-        dict 包含原 run_react_agent 全部字段 + memory_meta:
-            • final_reply: str
-            • iterations: int
-            • tool_calls_log: list[dict]
-            • memory_meta: dict — entities_extracted / summary_triggered / buffer_size_after
-
-    流程:
-        1. Memory Manager 注入记忆 → 完整 messages
-        2. 调原 ReAct graph 跑推理(走 initial_messages 旁路)
-        3. record_turn 更新所有记忆(buffer / entities / summary)
-    """
+    """⭐ 带记忆 + Persona + Guard 的 ReAct Agent."""
     base_prompt = system_prompt or REACT_SYSTEM_PROMPT
 
-    # 1. 注入记忆,得到完整 messages
     enriched_messages = await inject_memory_into_messages(
         user_message=user_message,
         user_id=user_id,
         session_id=session_id,
         system_prompt=base_prompt,
+        persona_mode=persona_mode,
     )
 
-    # 2. 跑 ReAct(用 initial_messages 旁路绕过内部组装)
-    result = await run_react_agent(
-        user_message=user_message,
-        initial_messages=enriched_messages,
-    )
+    react_kwargs: dict[str, Any] = {
+        "user_message": user_message,
+        "initial_messages": enriched_messages,
+    }
+    if thread_id is not None:
+        react_kwargs["thread_id"] = thread_id
 
-    # 3. 更新记忆
+    result = await run_react_agent(**react_kwargs)
+
+    # M10.4 — Persona Guard 检测
+    if persona_mode is not None:
+        guard = log_drift_if_any(
+            reply=result["final_reply"],
+            persona_mode=persona_mode,
+            user_id=str(user_id),
+            session_id=str(session_id),
+        )
+        result["guard"] = guard.to_dict()
+    else:
+        result["guard"] = {"is_drift": False, "triggered_phrases": [], "severity": "none"}
+
     memory_meta = await record_turn(
         user_id=user_id,
         session_id=session_id,
@@ -72,6 +70,7 @@ async def run_react_agent_with_memory(
     )
 
     result["memory_meta"] = memory_meta
+    result["persona_mode"] = persona_mode or "none"
     return result
 
 
