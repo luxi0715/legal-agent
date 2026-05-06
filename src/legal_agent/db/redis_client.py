@@ -21,7 +21,7 @@ async def init_redis() -> Redis:
     _redis = from_url(settings.redis_url, decode_responses=True)
 
     # ⭐ M9.1 — 强制完成 socket 握手
-    await _redis.ping()
+    await _redis.ping()  # type: ignore[misc]
 
     return _redis
 

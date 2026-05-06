@@ -4,12 +4,14 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from legal_agent.tools.get_law_article import get_law_article
+from legal_agent.tools.get_related_articles import get_related_articles
 from legal_agent.tools.legal_search import legal_search
 
 # 工具名 → 异步函数(必须跟 definitions.py 里的 name 字段对齐)
 TOOL_REGISTRY: dict[str, Callable[..., Awaitable[str]]] = {
     "legal_search": legal_search,
     "get_law_article": get_law_article,
+    "get_related_articles": get_related_articles,
 }
 
 
@@ -32,11 +34,6 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
     try:
         return await fn(**arguments)
     except TypeError as e:
-        # 参数对不上(例如缺必填、类型错)
         return f"[参数错误] 调用 {name} 失败: {e}"
     except Exception as e:
-        # 其他异常(数据库挂、网络抖等)
         return f"[执行错误] {name} 执行失败: {type(e).__name__}: {e}"
-
-
-__all__ = ["TOOL_REGISTRY", "dispatch_tool"]

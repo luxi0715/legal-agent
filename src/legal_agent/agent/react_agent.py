@@ -39,8 +39,9 @@ REACT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT + (
     "2. 观察工具结果后,如果信息不够,再调用其他工具\n"
     "3. 信息足够时,生成最终回答\n"
     "可用工具:\n"
-    "- legal_search:开放性法律问题\n"
-    "- get_law_article:精确条款号查询"
+    "- legal_search:开放性法律问题(语义检索)\n"
+    "- get_law_article:精确条款号查询(查原文)\n"
+    "- get_related_articles:查某条法条的关联引用网络(知识图谱)"
 )
 
 

@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 import pytest_asyncio
 
 from legal_agent.db.postgres import close_postgres_pool, init_postgres_pool
+from legal_agent.db.neo4j_client import close_neo4j, init_neo4j
 from legal_agent.db.redis_client import close_redis, init_redis
 
 
@@ -31,3 +32,11 @@ async def redis_client() -> AsyncIterator[None]:
     await init_redis()
     yield
     await close_redis()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def neo4j_driver() -> AsyncIterator[None]:
+    """Session-level Neo4j driver (M11.1)."""
+    await init_neo4j()
+    yield
+    await close_neo4j()

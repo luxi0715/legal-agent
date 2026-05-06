@@ -32,6 +32,28 @@ services:
       timeout: 5s
       retries: 5
 
+  neo4j:
+    image: neo4j:5.14-community
+    container_name: legal-agent-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/legal_agent_dev_pwd
+      NEO4J_dbms_memory_pagecache_size: 512M
+      NEO4J_dbms_memory_heap_max__size: 1G
+    ports:
+      - "7474:7474"   # HTTP / Browser UI
+      - "7687:7687"   # Bolt protocol
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:
+  neo4j_data:
+  neo4j_logs:

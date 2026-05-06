@@ -35,6 +35,12 @@ class Settings(BaseModel):
     # DashScope (Rerank) ⭐ M5 新增
     rerank_model: str = "gte-rerank-v2"
 
+    # Neo4j ⭐ M11 新增
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str
+    neo4j_database: str = "neo4j"
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -51,4 +57,8 @@ def get_settings() -> Settings:
         embedding_model=os.environ.get("EMBEDDING_MODEL", "text-embedding-v3"),
         embedding_dim=int(os.environ.get("EMBEDDING_DIM", "1024")),
         rerank_model=os.environ.get("RERANK_MODEL", "gte-rerank-v2"),
+        neo4j_uri=os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
+        neo4j_user=os.environ.get("NEO4J_USER", "neo4j"),
+        neo4j_password=os.environ["NEO4J_PASSWORD"],
+        neo4j_database=os.environ.get("NEO4J_DATABASE", "neo4j"),
     )

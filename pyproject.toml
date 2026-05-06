@@ -15,6 +15,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.5",
     "lxml>=6.1.0",
     "markitdown>=0.1.5",
+    "neo4j>=6.2.0",
     "openai>=2.32.0",
     "psycopg[binary]>=3.3.4",
     "python-dotenv>=1.2.2",
